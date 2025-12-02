@@ -198,7 +198,6 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState('saved'); // 'saved', 'saving', 'error'
   const [deletedNoteIds, setDeletedNoteIds] = useState([]);
   const [deletedProjectNames, setDeletedProjectNames] = useState([]);
-  const [isSaving, setIsSaving] = useState(false);
   const saveTimeoutRef = useRef(null);
   const notesRef = useRef([]);
   const projectsRef = useRef([]);
@@ -257,73 +256,11 @@ export default function App() {
     fetchData();
   }, []);
 
-  // Suscripción en tiempo real a cambios en Supabase
-  useEffect(() => {
-    if (!supabase || isLoading) return;
-
-    const notesChannel = supabase
-      .channel('notes-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'notes' },
-        (payload) => {
-          // Ignorar eventos mientras estamos guardando para evitar loops
-          if (isSaving) return;
-          
-          if (payload.eventType === 'INSERT') {
-            const newNote = { ...payload.new, id: Number(payload.new.id), updatedAt: payload.new.updated_at || payload.new.updatedAt };
-            setNotes(prev => {
-              const exists = prev.find(n => n.id === newNote.id);
-              if (exists) return prev;
-              return [newNote, ...prev];
-            });
-          } else if (payload.eventType === 'UPDATE') {
-            const updatedNote = { ...payload.new, id: Number(payload.new.id), updatedAt: payload.new.updated_at || payload.new.updatedAt };
-            setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n));
-          } else if (payload.eventType === 'DELETE') {
-            setNotes(prev => prev.filter(n => n.id !== Number(payload.old.id)));
-          }
-        }
-      )
-      .subscribe();
-
-    const projectsChannel = supabase
-      .channel('projects-changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'projects' },
-        (payload) => {
-          // Ignorar eventos mientras estamos guardando
-          if (isSaving) return;
-          
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const updatedProject = { 
-              ...payload.new, 
-              tags: payload.new.tags || []
-            };
-            setProjects(prev => {
-              const exists = prev.find(p => p.name === updatedProject.name);
-              if (exists) {
-                return prev.map(p => p.name === updatedProject.name ? updatedProject : p);
-              }
-              return [...prev, updatedProject];
-            });
-          } else if (payload.eventType === 'DELETE') {
-            setProjects(prev => prev.filter(p => p.name !== payload.old.name));
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(notesChannel);
-      supabase.removeChannel(projectsChannel);
-    };
-  }, [supabase, isLoading, isSaving]);
 
   // Guardado Automático mejorado con useRef para evitar interferencias
   const saveData = useCallback(async () => {
-    if (isLoading || isSaving) return;
+    if (isLoading) return;
     
-    setIsSaving(true);
     setSaveStatus('saving');
     
     // Usar refs para obtener los valores más recientes sin causar re-renders
@@ -380,17 +317,14 @@ export default function App() {
       } catch (error) {
         console.error('Error saving data:', error);
         setSaveStatus('error');
-      } finally {
-        setIsSaving(false);
       }
     } else {
       // Fallback LocalStorage
       localStorage.setItem('alenotes_data_v2', JSON.stringify(currentNotes));
       localStorage.setItem('alenotes_projects_v2', JSON.stringify(currentProjects));
       setTimeout(() => setSaveStatus('saved'), 500);
-      setIsSaving(false);
     }
-  }, [isLoading, isSaving, deletedNoteIds, deletedProjectNames]);
+  }, [isLoading, deletedNoteIds, deletedProjectNames]);
 
   // Efecto para guardar automáticamente con debounce
   useEffect(() => {

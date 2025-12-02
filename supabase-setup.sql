@@ -61,9 +61,9 @@ CREATE POLICY "Allow all operations on notes" ON notes
 -- CREATE POLICY "Authenticated users can delete projects" ON projects
 --     FOR DELETE USING (auth.role() = 'authenticated');
 
--- Habilitar Realtime para sincronización en tiempo real
-ALTER PUBLICATION supabase_realtime ADD TABLE notes;
-ALTER PUBLICATION supabase_realtime ADD TABLE projects;
+-- Realtime deshabilitado para evitar problemas de sincronización
+-- ALTER PUBLICATION supabase_realtime ADD TABLE notes;
+-- ALTER PUBLICATION supabase_realtime ADD TABLE projects;
 
 -- Migración: Agregar columna tags si la tabla ya existe
 DO $$ 
