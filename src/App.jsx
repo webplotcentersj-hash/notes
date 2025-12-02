@@ -210,8 +210,21 @@ export default function App() {
           const { data: notesData, error: notesError } = await supabase.from('notes').select('*').order('updated_at', { ascending: false });
           const { data: projectsData, error: projectsError } = await supabase.from('projects').select('*');
 
-          if (!notesError && notesData) setNotes(notesData.map(n => ({...n, id: Number(n.id) }))); 
-          if (!projectsError && projectsData) setProjects(projectsData);
+          if (!notesError && notesData) {
+            const formattedNotes = notesData.map(n => ({
+              ...n, 
+              id: Number(n.id),
+              updatedAt: n.updated_at || n.updatedAt || new Date().toISOString()
+            }));
+            setNotes(formattedNotes);
+          }
+          if (!projectsError && projectsData) {
+            const formattedProjects = projectsData.map(p => ({
+              ...p,
+              tags: p.tags || []
+            }));
+            setProjects(formattedProjects);
+          }
         } catch (error) {
           console.error('Error loading data:', error);
         }
