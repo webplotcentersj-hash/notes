@@ -1,6 +1,6 @@
 {
   "name": "ale-notes",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Aplicación de notas avanzada con múltiples tipos de bloques y soporte para Supabase",
   "scripts": {
