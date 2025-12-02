@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 import { 
@@ -199,6 +199,18 @@ export default function App() {
   const [deletedNoteIds, setDeletedNoteIds] = useState([]);
   const [deletedProjectNames, setDeletedProjectNames] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  const saveTimeoutRef = useRef(null);
+  const notesRef = useRef([]);
+  const projectsRef = useRef([]);
+
+  // Sincronizar refs con state
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+  
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
 
   // Cargar datos al inicio (desde Supabase o LocalStorage fallback si no hay key)
   useEffect(() => {
@@ -307,78 +319,99 @@ export default function App() {
     };
   }, [supabase, isLoading, isSaving]);
 
-  // Guardado Automático simplificado
-  useEffect(() => {
-    if (isLoading) return; 
-
-    const saveData = async () => {
-      setIsSaving(true);
-      setSaveStatus('saving');
-      
-      if (supabase) {
-        try {
-          // Eliminar notas que fueron borradas
-          if (deletedNoteIds.length > 0) {
-            const idsToDelete = [...deletedNoteIds];
-            const { error: deleteError } = await supabase
-              .from('notes')
-              .delete()
-              .in('id', idsToDelete);
-            
-            if (!deleteError) {
-              setDeletedNoteIds([]);
-            }
-          }
-
-          // Eliminar proyectos que fueron borrados
-          if (deletedProjectNames.length > 0) {
-            const namesToDelete = [...deletedProjectNames];
-            const { error: deleteProjError } = await supabase
-              .from('projects')
-              .delete()
-              .in('name', namesToDelete);
-            
-            if (!deleteProjError) {
-              setDeletedProjectNames([]);
-            }
-          }
-
-          // Actualizar/Insertar notas existentes
-          const updates = notes.map(n => ({
-            id: n.id,
-            title: n.title,
-            category: n.category,
-            blocks: n.blocks,
-            updated_at: n.updatedAt || new Date().toISOString()
-          }));
-          const projectUpdates = projects.map(p => ({ name: p.name, color: p.color, tags: p.tags || [] }));
-
-          if (updates.length > 0) {
-            await supabase.from('notes').upsert(updates);
-          }
-
-          if (projectUpdates.length > 0) {
-            await supabase.from('projects').upsert(projectUpdates);
-          }
+  // Guardado Automático mejorado con useRef para evitar interferencias
+  const saveData = useCallback(async () => {
+    if (isLoading || isSaving) return;
+    
+    setIsSaving(true);
+    setSaveStatus('saving');
+    
+    // Usar refs para obtener los valores más recientes sin causar re-renders
+    const currentNotes = notesRef.current;
+    const currentProjects = projectsRef.current;
+    
+    if (supabase) {
+      try {
+        // Eliminar notas que fueron borradas
+        if (deletedNoteIds.length > 0) {
+          const idsToDelete = [...deletedNoteIds];
+          const { error: deleteError } = await supabase
+            .from('notes')
+            .delete()
+            .in('id', idsToDelete);
           
-          setSaveStatus('saved');
-        } catch (error) {
-          console.error('Error saving data:', error);
-          setSaveStatus('error');
-        } finally {
-          setIsSaving(false);
+          if (!deleteError) {
+            setDeletedNoteIds([]);
+          }
         }
-      } else {
-        // Fallback LocalStorage
-        localStorage.setItem('alenotes_data_v2', JSON.stringify(notes));
-        localStorage.setItem('alenotes_projects_v2', JSON.stringify(projects));
-        setTimeout(() => setSaveStatus('saved'), 500);
+
+        // Eliminar proyectos que fueron borrados
+        if (deletedProjectNames.length > 0) {
+          const namesToDelete = [...deletedProjectNames];
+          const { error: deleteProjError } = await supabase
+            .from('projects')
+            .delete()
+            .in('name', namesToDelete);
+          
+          if (!deleteProjError) {
+            setDeletedProjectNames([]);
+          }
+        }
+
+        // Actualizar/Insertar notas existentes usando refs
+        const updates = currentNotes.map(n => ({
+          id: n.id,
+          title: n.title,
+          category: n.category,
+          blocks: n.blocks,
+          updated_at: n.updatedAt || new Date().toISOString()
+        }));
+        const projectUpdates = currentProjects.map(p => ({ name: p.name, color: p.color, tags: p.tags || [] }));
+
+        if (updates.length > 0) {
+          await supabase.from('notes').upsert(updates);
+        }
+
+        if (projectUpdates.length > 0) {
+          await supabase.from('projects').upsert(projectUpdates);
+        }
+        
+        setSaveStatus('saved');
+      } catch (error) {
+        console.error('Error saving data:', error);
+        setSaveStatus('error');
+      } finally {
+        setIsSaving(false);
+      }
+    } else {
+      // Fallback LocalStorage
+      localStorage.setItem('alenotes_data_v2', JSON.stringify(currentNotes));
+      localStorage.setItem('alenotes_projects_v2', JSON.stringify(currentProjects));
+      setTimeout(() => setSaveStatus('saved'), 500);
+      setIsSaving(false);
+    }
+  }, [isLoading, isSaving, deletedNoteIds, deletedProjectNames]);
+
+  // Efecto para guardar automáticamente con debounce
+  useEffect(() => {
+    if (isLoading) return;
+    
+    // Limpiar timeout anterior
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    // Crear nuevo timeout
+    saveTimeoutRef.current = setTimeout(() => {
+      saveData();
+    }, 2000);
+    
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
       }
     };
-
-    const timeoutId = setTimeout(saveData, 3000); 
-    return () => clearTimeout(timeoutId);
-  }, [notes, projects, isLoading, deletedNoteIds, deletedProjectNames]);
+  }, [notes, projects, isLoading, saveData]);
 
 
   const [activeNoteId, setActiveNoteId] = useState(null);
@@ -437,29 +470,37 @@ export default function App() {
     } 
   };
   
-  const addTagToProject = (projName, tag) => {
+  const addTagToProject = useCallback((projName, tag) => {
     if (!tag.trim()) return;
     const trimmedTag = tag.trim().toLowerCase();
-    setProjects(projects.map(p => {
-      if (p.name === projName) {
-        const currentTags = p.tags || [];
-        if (!currentTags.includes(trimmedTag)) {
-          return { ...p, tags: [...currentTags, trimmedTag] };
+    setProjects(prev => {
+      const updated = prev.map(p => {
+        if (p.name === projName) {
+          const currentTags = p.tags || [];
+          if (!currentTags.includes(trimmedTag)) {
+            return { ...p, tags: [...currentTags, trimmedTag] };
+          }
         }
-      }
-      return p;
-    }));
+        return p;
+      });
+      projectsRef.current = updated;
+      return updated;
+    });
     setNewTagInput('');
-  };
+  }, []);
 
-  const removeTagFromProject = (projName, tagToRemove) => {
-    setProjects(projects.map(p => {
-      if (p.name === projName) {
-        return { ...p, tags: (p.tags || []).filter(tag => tag !== tagToRemove) };
-      }
-      return p;
-    }));
-  };
+  const removeTagFromProject = useCallback((projName, tagToRemove) => {
+    setProjects(prev => {
+      const updated = prev.map(p => {
+        if (p.name === projName) {
+          return { ...p, tags: (p.tags || []).filter(tag => tag !== tagToRemove) };
+        }
+        return p;
+      });
+      projectsRef.current = updated;
+      return updated;
+    });
+  }, []);
 
   const toggleTagFilter = (tag) => {
     setSelectedTags(prev => 
@@ -503,17 +544,30 @@ export default function App() {
       }
     }
   };
-  const updateNoteTitle = (val) => { 
-    setNotes(prev => prev.map(n => n.id === activeNoteId ? { ...n, title: val, updatedAt: new Date().toISOString() } : n)); 
-  };
-  const updateNoteCategory = (val) => { 
-    setNotes(prev => prev.map(n => n.id === activeNoteId ? { ...n, category: val, updatedAt: new Date().toISOString() } : n)); 
-  };
+  const updateNoteTitle = useCallback((val) => { 
+    setNotes(prev => {
+      const updated = prev.map(n => n.id === activeNoteId ? { ...n, title: val, updatedAt: new Date().toISOString() } : n);
+      notesRef.current = updated;
+      return updated;
+    });
+  }, [activeNoteId]);
+  
+  const updateNoteCategory = useCallback((val) => { 
+    setNotes(prev => {
+      const updated = prev.map(n => n.id === activeNoteId ? { ...n, category: val, updatedAt: new Date().toISOString() } : n);
+      notesRef.current = updated;
+      return updated;
+    });
+  }, [activeNoteId]);
   
   // Blocks helpers
-  const updateBlocks = (newBlocks) => { 
-    setNotes(prev => prev.map(n => n.id === activeNoteId ? { ...n, blocks: newBlocks, updatedAt: new Date().toISOString() } : n)); 
-  };
+  const updateBlocks = useCallback((newBlocks) => { 
+    setNotes(prev => {
+      const updated = prev.map(n => n.id === activeNoteId ? { ...n, blocks: newBlocks, updatedAt: new Date().toISOString() } : n);
+      notesRef.current = updated;
+      return updated;
+    });
+  }, [activeNoteId]);
   const addBlock = (type) => { 
      if (!activeNote) return; 
      let blk;
