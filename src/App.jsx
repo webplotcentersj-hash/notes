@@ -229,6 +229,62 @@ export default function App() {
     fetchData();
   }, []);
 
+  // Suscripción en tiempo real a cambios en Supabase
+  useEffect(() => {
+    if (!supabase || isLoading) return;
+
+    const notesChannel = supabase
+      .channel('notes-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'notes' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newNote = { ...payload.new, id: Number(payload.new.id) };
+            setNotes(prev => {
+              const exists = prev.find(n => n.id === newNote.id);
+              if (exists) return prev;
+              return [newNote, ...prev];
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedNote = { ...payload.new, id: Number(payload.new.id) };
+            setNotes(prev => prev.map(n => n.id === updatedNote.id ? updatedNote : n));
+          } else if (payload.eventType === 'DELETE') {
+            setNotes(prev => prev.filter(n => n.id !== Number(payload.old.id)));
+          }
+        }
+      )
+      .subscribe();
+
+    const projectsChannel = supabase
+      .channel('projects-changes')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'projects' },
+        (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            setProjects(prev => {
+              const exists = prev.find(p => p.name === payload.new.name);
+              if (exists) {
+                return prev.map(p => p.name === payload.new.name ? payload.new : p);
+              }
+              return [...prev, payload.new];
+            });
+          } else if (payload.eventType === 'DELETE') {
+            setProjects(prev => prev.filter(p => p.name !== payload.old.name));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(notesChannel);
+      supabase.removeChannel(projectsChannel);
+    };
+  }, [supabase, isLoading]);
+
+  // Guardar IDs de notas eliminadas para sincronizar con Supabase
+  const [deletedNoteIds, setDeletedNoteIds] = useState([]);
+  const [deletedProjectNames, setDeletedProjectNames] = useState([]);
+
   // Guardado Automático
   useEffect(() => {
     if (isLoading) return; 
@@ -238,6 +294,35 @@ export default function App() {
       
       if (supabase) {
         try {
+          // Eliminar notas que fueron borradas
+          if (deletedNoteIds.length > 0) {
+            const { error: deleteError } = await supabase
+              .from('notes')
+              .delete()
+              .in('id', deletedNoteIds);
+            
+            if (deleteError) {
+              console.error('Error deleting notes:', deleteError);
+            } else {
+              setDeletedNoteIds([]);
+            }
+          }
+
+          // Eliminar proyectos que fueron borrados
+          if (deletedProjectNames.length > 0) {
+            const { error: deleteProjError } = await supabase
+              .from('projects')
+              .delete()
+              .in('name', deletedProjectNames);
+            
+            if (deleteProjError) {
+              console.error('Error deleting projects:', deleteProjError);
+            } else {
+              setDeletedProjectNames([]);
+            }
+          }
+
+          // Actualizar/Insertar notas existentes
           const updates = notes.map(n => ({
             id: n.id,
             title: n.title,
@@ -247,15 +332,25 @@ export default function App() {
           }));
           const projectUpdates = projects.map(p => ({ name: p.name, color: p.color }));
 
-          const { error: err1 } = await supabase.from('notes').upsert(updates);
-          const { error: err2 } = await supabase.from('projects').upsert(projectUpdates);
-          
-          if (err1 || err2) { 
-            console.error('Error saving:', err1, err2); 
-            setSaveStatus('error'); 
-          } else {
-            setSaveStatus('saved');
+          if (updates.length > 0) {
+            const { error: err1 } = await supabase.from('notes').upsert(updates);
+            if (err1) {
+              console.error('Error saving notes:', err1);
+              setSaveStatus('error');
+              return;
+            }
           }
+
+          if (projectUpdates.length > 0) {
+            const { error: err2 } = await supabase.from('projects').upsert(projectUpdates);
+            if (err2) {
+              console.error('Error saving projects:', err2);
+              setSaveStatus('error');
+              return;
+            }
+          }
+          
+          setSaveStatus('saved');
         } catch (error) {
           console.error('Error saving data:', error);
           setSaveStatus('error');
@@ -270,7 +365,7 @@ export default function App() {
 
     const timeoutId = setTimeout(saveData, 1000); 
     return () => clearTimeout(timeoutId);
-  }, [notes, projects, isLoading]);
+  }, [notes, projects, isLoading, deletedNoteIds, deletedProjectNames]);
 
 
   const [activeNoteId, setActiveNoteId] = useState(null);
@@ -298,7 +393,31 @@ export default function App() {
   };
   const addProject = () => { if (newProjectName.trim()) { const trimmed = newProjectName.trim(); if (!projects.some(p => p.name === trimmed)) { const randomColor = COLOR_KEYS[Math.floor(Math.random() * COLOR_KEYS.length)]; setProjects([...projects, { name: trimmed, color: randomColor }]); setSelectedCategory(trimmed); setViewMode('notes'); } setNewProjectName(''); setIsCreatingProject(false); } };
   const cycleProjectColor = (e, projName) => { e.stopPropagation(); setProjects(projects.map(p => { if (p.name === projName) { const nextIdx = (COLOR_KEYS.indexOf(p.color) + 1) % COLOR_KEYS.length; return { ...p, color: COLOR_KEYS[nextIdx] }; } return p; })); };
-  const deleteNote = (e, id) => { e.stopPropagation(); const newNotes = notes.filter(n => n.id !== id); setNotes(newNotes); if (activeNoteId === id) setActiveNoteId(newNotes[0]?.id || null); };
+  const deleteNote = async (e, id) => { 
+    e.stopPropagation(); 
+    const noteToDelete = notes.find(n => n.id === id);
+    if (!noteToDelete) return;
+    
+    // Eliminar inmediatamente de la UI
+    const newNotes = notes.filter(n => n.id !== id); 
+    setNotes(newNotes); 
+    
+    // Si era la nota activa, cambiar a otra
+    if (activeNoteId === id) {
+      setActiveNoteId(newNotes[0]?.id || null);
+    }
+    
+    // Si estamos usando Supabase, marcar para eliminación
+    if (supabase) {
+      setDeletedNoteIds(prev => [...prev, id]);
+      // Eliminar inmediatamente de Supabase
+      try {
+        await supabase.from('notes').delete().eq('id', id);
+      } catch (error) {
+        console.error('Error deleting note:', error);
+      }
+    }
+  };
   const updateNoteTitle = (val) => { setNotes(notes.map(n => n.id === activeNoteId ? { ...n, title: val, updatedAt: new Date().toISOString() } : n)); };
   const updateNoteCategory = (val) => { setNotes(notes.map(n => n.id === activeNoteId ? { ...n, category: val, updatedAt: new Date().toISOString() } : n)); };
   
