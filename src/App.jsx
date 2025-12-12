@@ -172,12 +172,18 @@ const TextBlock = ({ content, onChange, placeholder = "Escribe algo aquí..." })
       <div
         ref={editorRef}
         contentEditable
+        dir="ltr"
         onInput={handleInput}
         onFocus={handleFocus}
         onBlur={handleBlur}
         dangerouslySetInnerHTML={{ __html: content }}
         className="w-full bg-transparent resize-none focus:outline-none text-gray-700 leading-relaxed p-2 rounded hover:bg-gray-50 focus:bg-white transition-colors text-base md:text-sm min-h-[3rem]"
-        style={{ minHeight: '3rem' }}
+        style={{ 
+          minHeight: '3rem',
+          direction: 'ltr',
+          textAlign: 'left',
+          unicodeBidi: 'bidi-override'
+        }}
         data-placeholder={placeholder}
       />
       <style>{`
@@ -185,6 +191,15 @@ const TextBlock = ({ content, onChange, placeholder = "Escribe algo aquí..." })
           content: attr(data-placeholder);
           color: #9ca3af;
           pointer-events: none;
+        }
+        [contenteditable] {
+          direction: ltr !important;
+          text-align: left !important;
+          unicode-bidi: embed !important;
+        }
+        [contenteditable] * {
+          direction: ltr !important;
+          text-align: left !important;
         }
       `}</style>
     </div>
