@@ -114,16 +114,58 @@ const TextBlock = ({ content, onChange, placeholder = "Escribe algo aquí..." })
           <button
             onClick={() => applyFormat('bold')}
             className="p-2 hover:bg-gray-100 rounded transition-colors"
-            title="Negrita"
+            title="Negrita (Ctrl+B)"
           >
             <Bold size={16} className="text-gray-700" />
           </button>
           <button
+            onClick={() => applyFormat('italic')}
+            className="p-2 hover:bg-gray-100 rounded transition-colors"
+            title="Cursiva (Ctrl+I)"
+          >
+            <Italic size={16} className="text-gray-700" />
+          </button>
+          <button
             onClick={() => applyFormat('underline')}
             className="p-2 hover:bg-gray-100 rounded transition-colors"
-            title="Subrayado"
+            title="Subrayado (Ctrl+U)"
           >
             <Underline size={16} className="text-gray-700" />
+          </button>
+          <button
+            onClick={() => applyFormat('strikeThrough')}
+            className="p-2 hover:bg-gray-100 rounded transition-colors"
+            title="Tachado"
+          >
+            <Strikethrough size={16} className="text-gray-700" />
+          </button>
+          <div className="w-px h-6 bg-gray-200 mx-1"></div>
+          <button
+            onClick={() => applyFormat('insertUnorderedList')}
+            className="p-2 hover:bg-gray-100 rounded transition-colors"
+            title="Lista con viñetas"
+          >
+            <List size={16} className="text-gray-700" />
+          </button>
+          <button
+            onClick={() => applyFormat('insertOrderedList')}
+            className="p-2 hover:bg-gray-100 rounded transition-colors"
+            title="Lista numerada"
+          >
+            <List size={16} className="text-gray-700 rotate-90" />
+          </button>
+          <div className="w-px h-6 bg-gray-200 mx-1"></div>
+          <button
+            onClick={() => {
+              const url = prompt('Ingresa la URL:');
+              if (url) {
+                applyFormat('createLink', url);
+              }
+            }}
+            className="p-2 hover:bg-gray-100 rounded transition-colors"
+            title="Insertar enlace"
+          >
+            <LinkIcon size={16} className="text-gray-700" />
           </button>
         </div>
       )}
